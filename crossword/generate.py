@@ -74,15 +74,11 @@ class CrosswordCreator():
          constraints; in this case, the length of the word.)
         """
         for var in self.crossword.variables:
-            # Remove words that don't match the variable's length
-            words_to_remove = set()
-            for word in self.domains[var]:
-                if len(word) != var.length:
-                    words_to_remove.add(word)
-            
-            # Remove the inconsistent words
-            for word in words_to_remove:
-                self.domains[var].remove(word)
+            # Keep only words that match the variable's length
+            self.domains[var] = {
+                word for word in self.domains[var] 
+                if len(word) == var.length
+            }
 
     def revise(self, x, y):
         """
@@ -93,8 +89,6 @@ class CrosswordCreator():
         Return True if a revision was made to the domain of `x`; return
         False if no revision was made.
         """
-        revised = False
-        
         # Get the overlap between x and y
         overlap = self.crossword.overlaps[x, y]
         if overlap is None:
@@ -102,25 +96,16 @@ class CrosswordCreator():
         
         i, j = overlap  # x[i] must equal y[j]
         
-        # Check each word in x's domain
-        words_to_remove = set()
-        for word_x in self.domains[x]:
-            # Check if there's any word in y's domain that satisfies the constraint
-            has_compatible_word = False
-            for word_y in self.domains[y]:
-                if word_x[i] == word_y[j]:
-                    has_compatible_word = True
-                    break
-            
-            if not has_compatible_word:
-                words_to_remove.add(word_x)
-                revised = True
+        # Keep only words in x's domain that have a compatible word in y's domain
+        original_size = len(self.domains[x])
         
-        # Remove incompatible words
-        for word in words_to_remove:
-            self.domains[x].remove(word)
+        self.domains[x] = {
+            word_x for word_x in self.domains[x]
+            if any(word_x[i] == word_y[j] for word_y in self.domains[y])
+        }
         
-        return revised
+        # Return True if domain was changed
+        return len(self.domains[x]) < original_size
 
     def ac3(self, arcs=None):
         """
@@ -207,6 +192,10 @@ class CrosswordCreator():
         unassigned_neighbors = [neighbor for neighbor in self.crossword.neighbors(var) 
                                if neighbor not in assignment]
         
+        # If no unassigned neighbors, return domain values in any order
+        if not unassigned_neighbors:
+            return list(self.domains[var])
+        
         # For each value in var's domain, count how many values it rules out for neighbors
         value_constraints = []
         for value in self.domains[var]:
@@ -238,8 +227,19 @@ class CrosswordCreator():
         # Get all unassigned variables
         unassigned_vars = [var for var in self.crossword.variables if var not in assignment]
         
-        # Sort by MRV (minimum remaining values) first, then by degree (largest degree first)
-        unassigned_vars.sort(key=lambda var: (len(self.domains[var]), -len(self.crossword.neighbors(var))))
+        if not unassigned_vars:
+            return None
+        
+        # Calculate MRV and degree for each unassigned variable
+        def get_priority(var):
+            mrv = len(self.domains[var])  # Minimum remaining values
+            # Degree heuristic: count unassigned neighbors
+            unassigned_neighbors = len([neighbor for neighbor in self.crossword.neighbors(var) 
+                                      if neighbor not in assignment])
+            return (mrv, -unassigned_neighbors)  # Negative because we want highest degree first
+        
+        # Sort by MRV first, then by degree (highest degree first)
+        unassigned_vars.sort(key=get_priority)
         
         return unassigned_vars[0]
 

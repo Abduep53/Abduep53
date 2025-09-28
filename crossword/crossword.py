@@ -129,5 +129,5 @@ class Crossword():
         """Given a variable, return set of overlapping variables."""
         return set(
             v for v in self.variables
-            if v != var and self.overlaps[v, var]
+            if v != var and self.overlaps[v, var] is not None
         )
